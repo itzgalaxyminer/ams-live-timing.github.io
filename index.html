@@ -1,0 +1,630 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>KRP Live Timing</title>
+<style>
+:root {
+  --bg:      #0a0c10;
+  --surface: #111318;
+  --surf2:   #181c24;
+  --border:  #1f2533;
+  --text:    #e8edf5;
+  --muted:   #4a5568;
+  --dim:     #2d3748;
+  --green:   #22c55e;
+  --red:     #ef4444;
+  --yellow:  #f59e0b;
+  --blue:    #3b82f6;
+  --purple:  #8b5cf6;
+  --cyan:    #06b6d4;
+  --p1: #f59e0b; --p2: #94a3b8; --p3: #cd7f32;
+  --col-pos:60px; --col-nr:64px; --col-drv:1fr;
+  --col-laps:56px; --col-gap:110px;
+  --col-last:112px; --col-best:112px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,monospace,sans-serif;
+  height:100vh;display:flex;flex-direction:column;overflow:hidden;font-size:13px}
+
+/* ── TOP BAR ── */
+header{display:flex;align-items:center;gap:12px;padding:0 16px;height:48px;
+  background:var(--surface);border-bottom:2px solid var(--border);flex-shrink:0}
+#logo{font-size:14px;font-weight:800;letter-spacing:.1em;color:var(--cyan)}
+#sess-badge{padding:3px 10px;border-radius:4px;font-size:10px;font-weight:700;
+  letter-spacing:.08em;text-transform:uppercase;background:var(--dim);color:var(--muted)}
+#sess-badge.racing{background:rgba(34,197,94,.18);color:var(--green)}
+#sess-badge.finished{background:rgba(239,68,68,.18);color:var(--red)}
+#track-name{font-size:12px;color:var(--muted);flex:1}
+#sess-timer{font-size:20px;font-weight:800;font-variant-numeric:tabular-nums;color:var(--text)}
+#weather-info{font-size:11px;color:var(--muted);text-align:right;line-height:1.6}
+#conn-dot{width:8px;height:8px;border-radius:50%;background:var(--red);flex-shrink:0}
+#conn-dot.live{background:var(--green);animation:blink 1.5s infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+
+/* ── LAYOUT ── */
+#layout{display:grid;grid-template-columns:1fr 280px;flex:1;overflow:hidden}
+
+/* ── TOWER ── */
+#tower-wrap{display:flex;flex-direction:column;overflow:hidden}
+#tower-head{display:grid;
+  grid-template-columns:var(--col-pos) var(--col-nr) var(--col-drv) var(--col-laps) var(--col-gap) var(--col-last) var(--col-best);
+  padding:6px 12px;background:var(--surface);border-bottom:1px solid var(--border);
+  color:var(--muted);font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;flex-shrink:0}
+#tower-body{flex:1;overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--border) transparent}
+
+/* ── ROW ── */
+.kart-row{display:grid;
+  grid-template-columns:var(--col-pos) var(--col-nr) var(--col-drv) var(--col-laps) var(--col-gap) var(--col-last) var(--col-best);
+  align-items:center;padding:0 12px;height:46px;border-bottom:1px solid var(--border);
+  transition:background .15s;position:relative;overflow:hidden}
+.kart-row:hover{background:var(--surf2)}
+.kart-row.flash-gold{animation:fgold .7s ease}
+.kart-row.flash-green{animation:fgreen .5s ease}
+@keyframes fgold{0%{background:rgba(245,158,11,.4)}100%{background:transparent}}
+@keyframes fgreen{0%{background:rgba(34,197,94,.3)}100%{background:transparent}}
+
+/* Cells */
+.c-pos{width:34px;height:34px;border-radius:6px;display:flex;align-items:center;
+  justify-content:center;font-size:17px;font-weight:800;background:var(--surf2);color:var(--muted)}
+.c-pos.p1{background:var(--p1);color:#000}
+.c-pos.p2{background:var(--p2);color:#000}
+.c-pos.p3{background:var(--p3);color:#fff}
+
+.c-nr{font-weight:700;font-size:14px;padding-left:6px}
+.c-drv{overflow:hidden;padding-right:8px}
+.c-drv .name{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.c-drv .kart{font-size:10px;color:var(--muted);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+.c-laps{font-variant-numeric:tabular-nums;color:var(--muted);font-size:12px;text-align:center}
+.c-gap{font-variant-numeric:tabular-nums;font-size:12px;text-align:right;padding-right:8px}
+.c-gap.leader{color:var(--yellow);font-weight:700}
+.c-gap.lapped{color:var(--muted);font-weight:700}
+.c-last,.c-best{font-variant-numeric:tabular-nums;font-size:12px;text-align:right;padding-right:10px}
+.c-best{color:var(--green);font-weight:600}
+.c-best.ob{color:var(--purple)}
+.c-last.invalid{color:var(--red);text-decoration:line-through}
+
+/* Pit / out overlay */
+.kart-row.pitted .c-drv{opacity:.5}
+.kart-row.pitted::after{content:'PIT';position:absolute;right:10px;top:50%;transform:translateY(-50%);
+  font-size:10px;font-weight:700;letter-spacing:.08em;color:var(--yellow);
+  background:rgba(245,158,11,.15);padding:2px 6px;border-radius:4px}
+.kart-row.out .c-drv{opacity:.35;text-decoration:line-through}
+
+/* ── RIGHT PANEL ── */
+#right-panel{display:flex;flex-direction:column;border-left:1px solid var(--border);
+  background:var(--surface);overflow:hidden}
+.panel-head{padding:8px 12px;font-size:10px;font-weight:700;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--border);flex-shrink:0}
+
+/* Track map */
+#map-wrap{flex:1;overflow:hidden;position:relative;min-height:0}
+#map-canvas{display:block;width:100%;height:100%}
+
+/* Best laps */
+#best-laps{overflow-y:auto;max-height:200px;scrollbar-width:thin;scrollbar-color:var(--border) transparent}
+.best-row{display:flex;align-items:center;gap:8px;padding:6px 12px;border-bottom:1px solid var(--border);font-size:12px}
+.best-row .bp{width:20px;font-size:11px;color:var(--muted);font-weight:700}
+.best-row .bnr{font-weight:700;width:36px}
+.best-row .bdrv{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.best-row .btm{font-variant-numeric:tabular-nums;color:var(--green);font-weight:600}
+.best-row.p1 .btm{color:var(--purple)}
+
+/* Event log */
+#event-log{height:160px;overflow-y:auto;flex-shrink:0;
+  scrollbar-width:thin;scrollbar-color:var(--border) transparent}
+.ev-item{padding:5px 12px;font-size:11px;border-bottom:1px solid var(--border);
+  color:var(--muted);line-height:1.4;animation:slideIn .25s ease}
+.ev-item:first-child{color:var(--text)}
+@keyframes slideIn{from{opacity:0;transform:translateY(-3px)}to{opacity:1;transform:none}}
+
+/* ── BOTTOM ── */
+#bottom{display:flex;align-items:center;gap:20px;padding:0 16px;height:30px;
+  background:var(--surface);border-top:1px solid var(--border);font-size:11px;
+  color:var(--muted);flex-shrink:0}
+#bottom b{color:var(--text)}
+
+/* ── WAITING ── */
+#waiting{position:fixed;inset:0;background:var(--bg);display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:14px;z-index:100}
+#waiting h2{font-size:20px;color:var(--text)}
+#waiting p{color:var(--muted);font-size:13px}
+.spinner{width:38px;height:38px;border:3px solid var(--dim);border-top-color:var(--blue);
+  border-radius:50%;animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+
+<div id="waiting">
+  <div class="spinner"></div>
+  <h2>Connecting to KRP…</h2>
+  <p>Make sure <code>node timing_bridge_v4.js</code> is running</p>
+  <p id="wait-sub" style="font-size:11px;opacity:.5"></p>
+</div>
+
+<header>
+  <div id="logo">⏱ AMS LIVE TIMING</div>
+  <div id="sess-badge">Waiting</div>
+  <div id="track-name">—</div>
+  <div id="sess-timer">—</div>
+  <div id="weather-info">— °C air<br>— °C track</div>
+  <div id="conn-dot"></div>
+</header>
+
+<div id="layout">
+
+  <div id="tower-wrap">
+    <div id="tower-head">
+      <div>Pos</div><div>Nr</div><div>Driver</div>
+      <div style="text-align:center">Laps</div>
+      <div style="text-align:right;padding-right:8px">Gap</div>
+      <div style="text-align:right;padding-right:10px">Last Lap</div>
+      <div style="text-align:right;padding-right:10px">Best Lap</div>
+    </div>
+    <div id="tower-body"></div>
+  </div>
+
+  <div id="right-panel">
+    <div class="panel-head">Track Map</div>
+    <div id="map-wrap"><canvas id="map-canvas"></canvas></div>
+    <div class="panel-head">Best Laps</div>
+    <div id="best-laps"></div>
+    <div class="panel-head">Event Log</div>
+    <div id="event-log"></div>
+  </div>
+
+</div>
+
+<div id="bottom">
+  <span>AMS Live Timing</span>
+  <span>Air <b id="b-air">—</b> °C</span>
+  <span>Track <b id="b-trk">—</b> °C</span>
+  <span id="b-karts">0 karts</span>
+  <span style="flex:1"></span>
+  <span id="b-status">Waiting…</span>
+</div>
+
+<script>
+const WS_URL = `ws://${location.hostname || 'localhost'}:8765`;
+const $ = id => document.getElementById(id);
+
+let entries        = {};
+let classification = [];
+let overallBest    = 0;
+let session        = {};
+let trackSegments  = [];
+let ws;
+let reconnectTimer = null;
+
+/* ════════════════════════════════════
+   HELPERS
+   ════════════════════════════════════ */
+function msToStr(ms) {
+    if (!ms || ms <= 0) return '—';
+    const m = Math.floor(ms/60000), s = Math.floor((ms%60000)/1000), c = ms%1000;
+    return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}.${String(c).padStart(3,'0')}`;
+}
+function esc(v) {
+    return String(v ?? '').replace(/[&<>"']/g, c =>
+        ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function posClass(p) { return p===1?'p1':p===2?'p2':p===3?'p3':''; }
+
+/* Gap column text. gapMs < 0 is never produced any more; lapped karts
+   are flagged explicitly because KRP sends "--" for both leader and lapped. */
+function gapText(e, pos) {
+    if (e.isLapped) {
+        const n = e.lapsDown || 0;
+        return n > 0 ? `+${n} LAP${n > 1 ? 'S' : ''}` : 'LAP';
+    }
+    if (pos === 1)  return 'LEADER';
+    if (e.gapMs > 0) {
+        const s = Math.floor(e.gapMs/1000), c = String(e.gapMs%1000).padStart(3,'0');
+        return `+${s}.${c}`;
+    }
+    return '—';
+}
+
+/* ════════════════════════════════════
+   WEBSOCKET
+   ════════════════════════════════════ */
+function connect() {
+    clearTimeout(reconnectTimer);
+    ws = new WebSocket(WS_URL);
+
+    ws.onopen = () => {
+        $('conn-dot').classList.add('live');
+        $('wait-sub').textContent = `Bridge ${WS_URL} connected — waiting for KRP data…`;
+    };
+    ws.onclose = () => {
+        $('conn-dot').classList.remove('live');
+        $('waiting').style.display = 'flex';
+        $('wait-sub').textContent = 'Bridge connection closed — reconnecting…';
+        reconnectTimer = setTimeout(connect, 2000);
+    };
+    ws.onerror = () => {};
+    ws.onmessage = e => {
+        try { handleMsg(JSON.parse(e.data)); }
+        catch (err) { console.error('bad message', err); }
+    };
+}
+
+function showWaiting(text) {
+    $('waiting').style.display = 'flex';
+    if (text) $('wait-sub').textContent = text;
+}
+function hideWaiting() { $('waiting').style.display = 'none'; }
+
+/* ════════════════════════════════════
+   MESSAGE HANDLER
+   ════════════════════════════════════ */
+function handleMsg(d) {
+    switch(d.type) {
+
+        case 'connected':
+            hideWaiting();
+            $('b-status').textContent = 'Connected to KRP';
+            break;
+
+        case 'disconnected':
+            showWaiting('Lost the KRP connection — the bridge is reconnecting…');
+            $('b-status').textContent = 'KRP offline — retrying…';
+            break;
+
+        case 'error':
+            $('b-status').textContent = d.message || 'Bridge error';
+            if (d.message) addEvent('⚠ ' + d.message);
+            break;
+
+        case 'snapshot':
+            entries        = d.data.entries || {};
+            classification = d.data.classification || [];
+            trackSegments  = d.data.trackSegments || [];
+            session        = d.data.session || {};
+            (d.data.messages || []).slice().reverse().forEach(m => addEvent(m.text));
+            updateSession(session);
+            rebuildBest();
+            renderTower();
+            renderBestLaps();
+            requestDraw();
+            updateKartCount();
+            if (Object.keys(entries).length) hideWaiting();
+            break;
+
+        case 'reset':
+            entries        = {};
+            classification = [];
+            overallBest    = 0;
+            session        = d.session || {};
+            updateSession(session);
+            renderTower();
+            renderBestLaps();
+            requestDraw();
+            updateKartCount();
+            break;
+
+        case 'session': {
+            const wasEnded = isResultsPhase(session);
+            session = d.data || {};
+            updateSession(session);
+            if (isResultsPhase(session) !== wasEnded) renderTower();
+            break;
+        }
+
+        case 'entry':
+            entries[d.data.nr] = { ...(entries[d.data.nr]||{}), ...d.data };
+            updateKartCount();
+            break;
+
+        case 'entry_remove':
+            delete entries[d.nr];
+            classification = classification.filter(e => e.nr !== d.nr);
+            renderTower();
+            renderBestLaps();
+            requestDraw();
+            updateKartCount();
+            break;
+
+        case 'classification':
+            classification = d.data || [];
+            classification.forEach(e => entries[e.nr] = { ...(entries[e.nr]||{}), ...e });
+            rebuildBest();
+            renderTower();
+            renderBestLaps();
+            updateKartCount();
+            if (classification.length) hideWaiting();
+            break;
+
+        case 'lap': {
+            const e = entries[d.nr] || (entries[d.nr] = { nr: d.nr });
+            e.lastLap        = d.ms;
+            e.lastLapInvalid = !!d.invalid;
+            if (d.best > 0) e.bestLap = d.best;
+            rebuildBest();
+            renderTower();
+            renderBestLaps();
+            flashRow(d.nr, d.isBest ? 'flash-gold' : 'flash-green');
+            break;
+        }
+
+        case 'pos': {
+            const e = entries[d.nr] || (entries[d.nr] = { nr: d.nr });
+            Object.assign(e, { x: d.x, y: d.y, z: d.z });
+            requestDraw();
+            break;
+        }
+
+        case 'track_map':
+            trackSegments = d.segments || [];
+            requestDraw();
+            break;
+
+        case 'driver_status': {
+            const e = entries[d.nr];
+            if (e) {
+                e.driverStatus = d.status;
+                if (d.status === 'DNS' || d.status === 'DSQ' || d.status === 'RET') e.status = 'out';
+                else if (e.status === 'out') e.status = e.bikeStatus === 'PIT' ? 'pitted' : 'on_track';
+                renderTower();
+            }
+            break;
+        }
+
+        case 'event':
+            addEvent(d.text);
+            break;
+    }
+}
+
+/* ════════════════════════════════════
+   SESSION BAR
+   ════════════════════════════════════ */
+function updateSession(s) {
+    s = s || {};
+    const badge = $('sess-badge');
+    const typeMap = { practice:'Practice', qualify:'Qualifying', race:'Race',
+                      warmup:'Warm-Up', waiting:'Waiting' };
+
+    badge.textContent = s.name || typeMap[s.type] || 'Session';
+    badge.className = '';
+    if (s.status === 'racing') badge.classList.add('racing');
+    if (s.status === 'finished' || s.status === 'raceover') badge.classList.add('finished');
+
+    const trackDisp = [s.trackName, s.trackLength ? `(${(s.trackLength/1000).toFixed(2)} km)` : '']
+        .filter(Boolean).join(' ');
+    $('track-name').textContent = trackDisp || '—';
+
+    /* Session clock: always rewritten so a new session starts from 00:00 */
+    const em  = Math.max(0, s.elapsedMs || 0);
+    const min = Math.floor(em/60000), sec = Math.floor((em%60000)/1000);
+    $('sess-timer').textContent = `${String(min).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
+
+    if (s.conditions) {
+        const condIcon = { clear:'☀️', cloudy:'⛅', rainy:'🌧️', rain:'🌧️' };
+        $('weather-info').innerHTML =
+            `${condIcon[s.conditions]||''} ${s.airTemp||'—'} °C air<br>${s.trackTemp||'—'} °C track`;
+        $('b-air').textContent  = s.airTemp   || '—';
+        $('b-trk').textContent  = s.trackTemp || '—';
+    }
+
+    $('b-status').textContent = `${s.name || typeMap[s.type] || '—'}  •  ${s.status || '—'}`;
+}
+
+/* ════════════════════════════════════
+   TIMING TOWER
+   ════════════════════════════════════ */
+/* After RACEOVER/WAITING KRP flags every kart RET (they leave the track),
+   so the results must not be rendered as retired. */
+function isResultsPhase(s) {
+    return !!s && (s.status === 'raceover' || s.status === 'waiting');
+}
+
+function renderTower() {
+    const body  = $('tower-body');
+    const order = classification.length ? classification : [];
+    /* KRP flags every kart RET once the race is over; don't strike out the
+       results while the session is no longer running. */
+    const cleanRet = isResultsPhase(session);
+
+    const existing = {};
+    body.querySelectorAll('.kart-row').forEach(el => existing[el.dataset.nr] = el);
+
+    if (!order.length) {
+        body.innerHTML = '';
+        return;
+    }
+
+    const frag = document.createDocumentFragment();
+    const seen = new Set();
+
+    order.forEach((e, idx) => {
+        const nr = e.nr || String(idx+1);
+        seen.add(nr);
+        let row = existing[nr];
+        if (!row) { row = document.createElement('div'); row.className='kart-row'; row.dataset.nr=nr; }
+
+        const pos   = e.pos || (idx+1);
+        const isOB  = overallBest>0 && e.bestLap>0 && e.bestLap===overallBest;
+        const color = e.color || '#3b82f6';
+        const faded = e.status === 'out' && !(cleanRet && (e.driverStatus || '') === 'RET');
+
+        row.className = 'kart-row' +
+            (e.status==='pitted' ? ' pitted' : '') +
+            (faded               ? ' out'    : '');
+
+        row.innerHTML =
+          `<div class="c-pos ${posClass(pos)}">${pos}</div>` +
+          `<div class="c-nr" style="color:${esc(color)}">#${esc(nr)}</div>` +
+          `<div class="c-drv">
+             <div class="name">${esc(e.driver || '#'+nr)}</div>
+             <div class="kart">${esc(e.kart || e.class || '')}</div>
+           </div>` +
+          `<div class="c-laps">${e.laps||0}</div>` +
+          `<div class="c-gap ${e.isLapped?'lapped':(pos===1?'leader':'')}">${gapText(e,pos)}</div>` +
+          `<div class="c-last ${e.lastLapInvalid?'invalid':''}">${msToStr(e.lastLap)}</div>` +
+          `<div class="c-best ${isOB?'ob':''}">${msToStr(e.bestLap)}</div>`;
+
+        frag.appendChild(row);
+    });
+
+    Object.keys(existing).forEach(nr => { if (!seen.has(nr)) existing[nr].remove(); });
+    body.appendChild(frag);
+}
+
+/* ════════════════════════════════════
+   BEST LAPS PANEL
+   ════════════════════════════════════ */
+function renderBestLaps() {
+    const sorted = Object.values(entries)
+        .filter(e => e.bestLap > 0)
+        .sort((a,b) => a.bestLap - b.bestLap);
+
+    const el = $('best-laps');
+    el.innerHTML = '';
+
+    sorted.slice(0,15).forEach((e,i) => {
+        const d = document.createElement('div');
+        d.className = 'best-row' + (i===0?' p1':'');
+        d.innerHTML =
+          `<span class="bp">${i+1}</span>` +
+          `<span class="bnr" style="color:${esc(e.color||'#3b82f6')}">#${esc(e.nr)}</span>` +
+          `<span class="bdrv">${esc(e.driver || e.nr)}</span>` +
+          `<span class="btm">${msToStr(e.bestLap)}</span>`;
+        el.appendChild(d);
+    });
+}
+
+/* ════════════════════════════════════
+   TRACK MAP
+   ════════════════════════════════════ */
+const mapCanvas = $('map-canvas');
+const mapCtx    = mapCanvas.getContext('2d');
+
+/* Bounds only ever grow: including moving karts must not rescale the track. */
+const bounds = { minX: Infinity, maxX: -Infinity, minZ: Infinity, maxZ: -Infinity };
+let mapDirty = false;
+
+function expandBounds(x, z) {
+    if (x < bounds.minX) bounds.minX = x;
+    if (x > bounds.maxX) bounds.maxX = x;
+    if (z < bounds.minZ) bounds.minZ = z;
+    if (z > bounds.maxZ) bounds.maxZ = z;
+}
+
+function requestDraw() {
+    if (mapDirty) return;
+    mapDirty = true;
+    requestAnimationFrame(() => { mapDirty = false; drawMap(); });
+}
+
+function drawMap() {
+    const wrap = $('map-wrap');
+    const W = wrap.clientWidth, H = wrap.clientHeight;
+    if (W <= 0 || H <= 0) return;
+
+    if (mapCanvas.width  !== W) mapCanvas.width  = W;
+    if (mapCanvas.height !== H) mapCanvas.height = H;
+
+    const ctx = mapCtx;
+    ctx.clearRect(0, 0, W, H);
+
+    const segs = trackSegments.filter(Boolean).sort((a,b) => a.idx - b.idx);
+    segs.forEach(s => expandBounds(s.z, s.x));
+
+    const karts = Object.values(entries)
+        .filter(e => typeof e.x === 'number' && typeof e.z === 'number');
+    karts.forEach(e => expandBounds(e.z, e.x));
+
+    if (!segs.length && !karts.length) {
+        ctx.fillStyle = '#252a35'; ctx.fillRect(0, 0, W, H);
+        ctx.fillStyle = '#4a5568'; ctx.font = '12px system-ui'; ctx.textAlign = 'center';
+        ctx.fillText('Waiting for track data…', W/2, H/2);
+        return;
+    }
+
+    const pad   = 24;
+    const spanX = Math.max(bounds.maxX - bounds.minX, 40);
+    const spanZ = Math.max(bounds.maxZ - bounds.minZ, 40);
+    const sc    = Math.min((W - pad*2)/spanX, (H - pad*2)/spanZ);
+    const offX  = pad + (W - pad*2 - spanX*sc)/2 - bounds.minX*sc;
+    const offZ  = pad + (H - pad*2 - spanZ*sc)/2 - bounds.minZ*sc;
+
+    const toCanvas = (x,z) => ({ cx: offX + x*sc, cy: offZ + z*sc });
+
+    /* Track centreline */
+    if (segs.length > 1) {
+        ctx.beginPath();
+        segs.forEach((s,i) => {
+            const {cx,cy} = toCanvas(s.z, s.x);
+            i === 0 ? ctx.moveTo(cx,cy) : ctx.lineTo(cx,cy);
+        });
+        const first = segs[0];
+        const {cx,cy} = toCanvas(first.z, first.x);
+        ctx.lineTo(cx,cy);
+
+        ctx.strokeStyle = '#2d3748'; ctx.lineWidth = 8; ctx.stroke();
+        ctx.strokeStyle = '#374151'; ctx.lineWidth = 4; ctx.stroke();
+        ctx.strokeStyle = '#4b5563'; ctx.lineWidth = 1.5; ctx.stroke();
+    }
+
+    /* Karts */
+    karts.forEach(e => {
+        const {cx,cy} = toCanvas(e.z, e.x);
+        const color = e.color || '#3b82f6';
+
+        ctx.beginPath(); ctx.arc(cx, cy, 8, 0, Math.PI*2);
+        ctx.fillStyle = color + '44'; ctx.fill();
+
+        ctx.beginPath(); ctx.arc(cx, cy, 5, 0, Math.PI*2);
+        ctx.fillStyle = color; ctx.fill();
+        ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5; ctx.stroke();
+
+        ctx.fillStyle = '#fff'; ctx.font = 'bold 9px system-ui'; ctx.textAlign = 'center';
+        ctx.fillText('#' + e.nr, cx, cy - 9);
+    });
+}
+
+/* ════════════════════════════════════
+   EVENT LOG
+   ════════════════════════════════════ */
+function addEvent(text) {
+    const log = $('event-log');
+    const d = document.createElement('div');
+    d.className = 'ev-item';
+    d.textContent = text;
+    log.insertBefore(d, log.firstChild);
+    while (log.children.length > 30) log.lastChild.remove();
+}
+
+/* ════════════════════════════════════
+   MISC HELPERS
+   ════════════════════════════════════ */
+function updateKartCount() {
+    $('b-karts').textContent = Object.keys(entries).length + ' karts';
+}
+
+function rebuildBest() {
+    overallBest = 0;
+    Object.values(entries).forEach(e => {
+        if (e.bestLap > 0 && (!overallBest || e.bestLap < overallBest)) overallBest = e.bestLap;
+    });
+}
+
+function flashRow(nr, cls) {
+    const row = document.querySelector(`.kart-row[data-nr="${nr}"]`);
+    if (!row) return;
+    row.classList.remove('flash-gold','flash-green');
+    void row.offsetWidth;
+    row.classList.add(cls);
+}
+
+/* ════════════════════════════════════
+   INIT
+   ════════════════════════════════════ */
+connect();
+new ResizeObserver(requestDraw).observe($('map-wrap'));
+</script>
+</body>
+</html>
